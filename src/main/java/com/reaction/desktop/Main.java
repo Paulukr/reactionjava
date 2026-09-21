@@ -27,6 +27,14 @@ public class Main {
         String name = optionValue(args, "--name", "desktop");
         String stun = optionValue(args, "--stun", "stun:stun.cloudflare.com:3478");
 
+        if (mode.equals("selftest")) {
+            String url = args[1];
+            String auth = optionValue(args, "--auth", System.getenv().getOrDefault("REACTION_AUTH", ""));
+            SelfTest.Result r = new SelfTest(url, auth, Integer.parseInt(optionValue(args, "--timeout", "40"))).run();
+            r.lines().forEach(System.out::println);
+            System.exit(r.passed() ? 0 : 1);
+        }
+
         Transport transport;
         switch (mode) {
             case "server" -> {
@@ -37,7 +45,8 @@ public class Main {
             }
             case "create" -> {
                 String signalingUrl = args[1].replaceAll("/+$", "");
-                JSONObject room = createRoom(signalingUrl);
+                String auth = optionValue(args, "--auth", System.getenv().getOrDefault("REACTION_AUTH", ""));
+                JSONObject room = createRoom(signalingUrl, auth);
                 String host = room.optString("host", URI.create(signalingUrl).getHost());
                 System.out.println("invitation : " + room.getString("invite"));
                 System.out.println("web link   : (append to your Pages URL) #invite=" + room.getString("invite"));
@@ -74,13 +83,18 @@ public class Main {
         transport.close();
     }
 
-    private static JSONObject createRoom(String signalingUrl) throws Exception {
+    /** POST /rooms; the site login (`--auth login:password` or env REACTION_AUTH) is sent as Basic auth. */
+    private static JSONObject createRoom(String signalingUrl, String auth) throws Exception {
         HttpClient http = HttpClient.newHttpClient();
-        HttpResponse<String> res = http.send(
-            HttpRequest.newBuilder(URI.create(signalingUrl + "/rooms"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(),
-            HttpResponse.BodyHandlers.ofString());
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(signalingUrl + "/rooms"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString("{}"));
+        if (auth != null && !auth.isBlank()) {
+            b.header("Authorization", "Basic " + java.util.Base64.getEncoder().encodeToString(auth.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        }
+        HttpResponse<String> res = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+        if (res.statusCode() == 401) throw new RuntimeException("create room: the signaling service wants the site login: --auth login:password (or REACTION_AUTH)");
+        if (res.statusCode() == 429) throw new RuntimeException("create room: too many rooms from this address, try later");
         if (res.statusCode() != 201) throw new RuntimeException("create room failed: HTTP " + res.statusCode() + " " + res.body());
         return new JSONObject(res.body());
     }
@@ -134,9 +148,11 @@ public class Main {
     private static void usage() {
         System.out.println("""
             Reaction desktop client
-              reactionjava server <baseUrl> [sendChannel receiveChannel]
-              reactionjava create <signalingUrl> [--stun <url>] [--name <n>]
-              reactionjava join   <invitation>   [--stun <url>] [--name <n>] [--signaling <url>]
-            Type lines to send; Ctrl-D to quit.""");
+              reactionjava server   <baseUrl> [sendChannel receiveChannel]
+              reactionjava create   <signalingUrl> [--auth login:pw] [--stun <url>] [--name <n>]
+              reactionjava join     <invitation>   [--stun <url>] [--name <n>] [--signaling <url>]
+              reactionjava selftest <signalingUrl> [--auth login:pw] [--timeout 40]
+                  one-shot end-to-end check of a deployed Worker: health, gate, room, real WebRTC
+            --auth defaults to $REACTION_AUTH. Type lines to send; Ctrl-D to quit.""");
     }
 }
