@@ -81,6 +81,10 @@ public class Main {
             System.out.println(">> " + line);
         }
         transport.close();
+        // The WebRTC native threads and the WebSocket client are not daemon threads: without an
+        // explicit exit the JVM lingers after close(). Give close() a moment to send `bye`, then leave.
+        try { Thread.sleep(300); } catch (InterruptedException ignored) { }
+        System.exit(0);
     }
 
     /** POST /rooms; the site login (`--auth login:password` or env REACTION_AUTH) is sent as Basic auth. */
