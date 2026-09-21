@@ -31,7 +31,7 @@ distribution.
 BIN=build/install/reactionjava/bin/reactionjava
 
 # Legacy msgserver mode
-$BIN server http://192.168.1.8:8765 from-app to-app
+$BIN server http://<host-ip>:8765 from-app to-app
 
 # P2P: create a room (prints an invitation) or join one
 $BIN create https://your-worker.workers.dev --name laptop

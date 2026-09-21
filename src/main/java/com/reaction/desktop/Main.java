@@ -48,7 +48,7 @@ public class Main {
                 Protocol.Invite inv = Protocol.parseInvite(args[1]);
                 if (inv == null) { System.err.println("invalid invitation"); return; }
                 String ws = inv.host() != null ? wsScheme(inv.host()) + "://" + inv.host() + "/ws"
-                    : wsUrl(optionValue(args, "--signaling", "https://reaction-signaling.example.workers.dev"));
+                    : wsUrl(optionValue(args, "--signaling", defaultSignalingUrl()));
                 transport = new P2pClient(ws, inv.room(), inv.token(), Protocol.randomPeerId(), iceServers(stun), name);
             }
             default -> { usage(); return; }
@@ -95,7 +95,7 @@ public class Main {
         return list;
     }
 
-    /** Loopback / private-LAN / Tailscale hosts use ws:// (no TLS); public hosts use wss://. */
+    /** Loopback / private-range hosts use ws:// (no TLS); public hosts use wss://. */
     private static String wsScheme(String host) {
         String h = host.split(":")[0].toLowerCase();
         if (h.equals("localhost") || h.endsWith(".local")) return "ws";
@@ -103,7 +103,7 @@ public class Main {
         if (!m.matches()) return "wss";
         int a = Integer.parseInt(m.group(1)), b = Integer.parseInt(m.group(2));
         boolean local = a == 127 || a == 10 || (a == 192 && b == 168)
-            || (a == 172 && b >= 16 && b <= 31) || (a == 100 && b >= 64 && b <= 127); // RFC1918 + Tailscale
+            || (a == 172 && b >= 16 && b <= 31) || (a == 100 && b >= 64 && b <= 127); // RFC 1918 + RFC 6598 (CGNAT)
         return local ? "ws" : "wss";
     }
 
@@ -112,6 +112,18 @@ public class Main {
         String scheme = "http".equals(u.getScheme()) ? "ws" : "wss";
         String port = u.getPort() == -1 ? "" : ":" + u.getPort();
         return scheme + "://" + u.getHost() + port + "/ws";
+    }
+
+    /** Default signaling URL from the bundled reaction.properties (synced from reactionjs/deploy.properties). */
+    private static String defaultSignalingUrl() {
+        try (var in = Main.class.getResourceAsStream("/reaction.properties")) {
+            var p = new java.util.Properties();
+            if (in != null) p.load(in);
+            String v = p.getProperty("signalingUrl", "").trim();
+            if (!v.isEmpty()) return v;
+        } catch (Exception ignored) { /* fall through */ }
+        System.err.println("no signalingUrl in reaction.properties; pass --signaling <url>");
+        return "https://reaction-signaling.example.workers.dev";
     }
 
     private static String optionValue(String[] args, String flag, String def) {
