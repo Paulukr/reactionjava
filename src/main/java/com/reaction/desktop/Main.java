@@ -95,11 +95,16 @@ public class Main {
         return list;
     }
 
-    /** Loopback / private hosts use ws:// (dev, no TLS); public hosts use wss://. */
+    /** Loopback / private-LAN / Tailscale hosts use ws:// (no TLS); public hosts use wss://. */
     private static String wsScheme(String host) {
-        String h = host.toLowerCase();
-        return (h.startsWith("127.") || h.startsWith("localhost") || h.startsWith("192.168.")
-            || h.startsWith("10.") || h.startsWith("172.")) ? "ws" : "wss";
+        String h = host.split(":")[0].toLowerCase();
+        if (h.equals("localhost") || h.endsWith(".local")) return "ws";
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(\\d+)\\.(\\d+)\\.\\d+\\.\\d+$").matcher(h);
+        if (!m.matches()) return "wss";
+        int a = Integer.parseInt(m.group(1)), b = Integer.parseInt(m.group(2));
+        boolean local = a == 127 || a == 10 || (a == 192 && b == 168)
+            || (a == 172 && b >= 16 && b <= 31) || (a == 100 && b >= 64 && b <= 127); // RFC1918 + Tailscale
+        return local ? "ws" : "wss";
     }
 
     private static String wsUrl(String signalingUrl) {
